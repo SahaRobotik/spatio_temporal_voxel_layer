@@ -55,7 +55,7 @@ SpatioTemporalVoxelLayer::~SpatioTemporalVoxelLayer(void)
   }
   if (_voxel_grid)
   {
-    delete _voxel_grid;    
+    delete _voxel_grid;
   }
 }
 
@@ -720,6 +720,10 @@ void SpatioTemporalVoxelLayer::updateBounds( \
     return;
   }
 
+  // Required because UpdateROSCostmap will also lock if AFTER we lock here voxel_grid_lock,
+  // and if clearArea is called in between, we will have a deadlock
+  boost::unique_lock<mutex_t> cm_lock(*getMutex());
+
   boost::recursive_mutex::scoped_lock lock(_voxel_grid_lock);
 
   // Steve's Note June 22, 2018
@@ -806,6 +810,21 @@ bool SpatioTemporalVoxelLayer::SaveGridCallback( \
   ROS_WARN("SpatioTemporalVoxelGrid: Failed to save grid.");
   resp.status = false;
   return false;
+}
+
+/********************************************************************************************************/
+void SpatioTemporalVoxelLayer::clearArea(int start_x, int start_y, int end_x, int end_y, bool invert_area)
+/********************************************************************************************************/
+{
+  // convert map coords to world coords
+  volume_grid::occupany_cell start_world(0, 0);
+  volume_grid::occupany_cell end_world(0, 0);
+  mapToWorld(start_x, start_y, start_world.x, start_world.y);
+  mapToWorld(end_x, end_y, end_world.x, end_world.y);
+
+  boost::recursive_mutex::scoped_lock lock(_voxel_grid_lock);
+  _voxel_grid->ResetGridArea(start_world, end_world, invert_area);
+  CostmapLayer::clearArea(start_x, start_y, end_x, end_y, invert_area);
 }
 
 }; // end namespace
